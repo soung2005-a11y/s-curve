@@ -47,7 +47,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.markdown(
-    '<div class="dashboard-subtitle">분기·상권유형·업종 필터를 기준으로 핵심 지표와 업종별 매출 상위를 확인합니다.</div>',
+    '<div class="dashboard-subtitle">분기·상권유형·업종 필터를 기준으로 매출 현황과 고객 구성을 함께 확인합니다.</div>',
     unsafe_allow_html=True,
 )
 
@@ -91,10 +91,22 @@ def load_data() -> pd.DataFrame:
     }
     df = df.rename(columns=rename_map)
 
-    numeric_cols = ["기준_년분기_코드", "분기매출액", "분기거래건수"]
+    numeric_cols = [
+        "기준_년분기_코드",
+        "분기매출액",
+        "분기거래건수",
+        "남성_매출_금액",
+        "여성_매출_금액",
+        "연령대_10_매출_금액",
+        "연령대_20_매출_금액",
+        "연령대_30_매출_금액",
+        "연령대_40_매출_금액",
+        "연령대_50_매출_금액",
+        "연령대_60_이상_매출_금액",
+    ]
     for col in numeric_cols:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     return df
 
@@ -239,6 +251,45 @@ industry_count = filtered_data["업종"].nunique()
 
 
 # -------------------------------------------------
+# 고객 분석용 집계 (filtered_data 기준)
+# -------------------------------------------------
+gender_df = pd.DataFrame(
+    {
+        "성별": ["남성", "여성"],
+        "매출액": [
+            filtered_data["남성_매출_금액"].sum(),
+            filtered_data["여성_매출_금액"].sum(),
+        ],
+    }
+)
+
+gender_total = gender_df["매출액"].sum()
+if gender_total > 0:
+    gender_df["비율"] = gender_df["매출액"] / gender_total
+else:
+    gender_df["비율"] = 0
+
+gender_df["비율라벨"] = gender_df["비율"].map(lambda x: f"{x:.1%}")
+gender_df["매출액라벨"] = gender_df["매출액"].map(format_eok)
+
+age_df = pd.DataFrame(
+    {
+        "연령대": ["10대", "20대", "30대", "40대", "50대", "60대 이상"],
+        "매출액": [
+            filtered_data["연령대_10_매출_금액"].sum(),
+            filtered_data["연령대_20_매출_금액"].sum(),
+            filtered_data["연령대_30_매출_금액"].sum(),
+            filtered_data["연령대_40_매출_금액"].sum(),
+            filtered_data["연령대_50_매출_금액"].sum(),
+            filtered_data["연령대_60_이상_매출_금액"].sum(),
+        ],
+    }
+)
+age_df["매출액_억원"] = age_df["매출액"] / 100_000_000
+age_df["매출라벨"] = age_df["매출액_억원"].map(lambda x: f"{x:,.1f}억")
+
+
+# -------------------------------------------------
 # 상단 상태 표시
 # -------------------------------------------------
 if not selected_quarters:
@@ -252,7 +303,8 @@ market_type_filter_text = (
     ", ".join(selected_market_types) if selected_market_types else "선택 없음"
 )
 industry_filter_text = (
-    ", ".join(selected_industries[:3]) + (f" 외 {len(selected_industries)-3}개" if len(selected_industries) > 3 else "")
+    ", ".join(selected_industries[:3]) +
+    (f" 외 {len(selected_industries)-3}개" if len(selected_industries) > 3 else "")
     if selected_industries else "선택 없음"
 )
 
@@ -270,121 +322,228 @@ with right_info:
 
 
 # -------------------------------------------------
-# KPI 4칸 (filtered_data 기준)
+# 탭 구성
 # -------------------------------------------------
-st.markdown('<div class="section-title">✨ 핵심 메트릭</div>', unsafe_allow_html=True)
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric(
-        label="💰 총 분기 매출액",
-        value=format_eok(total_sales),
-        help="선택한 필터 조건 기준 분기매출액 합계를 억원 단위로 표시합니다.",
-    )
-
-with col2:
-    st.metric(
-        label="🧾 총 분기 거래건수",
-        value=format_man_geon(total_txn),
-        help="선택한 필터 조건 기준 분기거래건수 합계를 만 건 단위로 표시합니다.",
-    )
-
-with col3:
-    st.metric(
-        label="🏙️ 분석 상권 수",
-        value=format_int(market_count),
-        help="선택한 필터 조건 기준 상권이름의 고유 개수입니다.",
-    )
-
-with col4:
-    st.metric(
-        label="🛍️ 업종 종류",
-        value=format_int(industry_count),
-        help="선택한 필터 조건 기준 업종의 고유 개수입니다.",
-    )
-
-st.markdown("---")
+tab1, tab2 = st.tabs(["💰 매출 현황", "👥 고객 분석"])
 
 
 # -------------------------------------------------
-# 차트 계산 (filtered_data 기준)
+# 탭 1: 매출 현황
 # -------------------------------------------------
-st.markdown('<div class="section-title">🏆 분기 매출 TOP 10 업종</div>', unsafe_allow_html=True)
+with tab1:
+    st.markdown('<div class="section-title">✨ 핵심 메트릭</div>', unsafe_allow_html=True)
 
-industry_top10 = (
-    filtered_data.groupby("업종", as_index=False)["분기매출액"]
-    .sum()
-    .sort_values("분기매출액", ascending=False)
-    .head(10)
-    .copy()
-)
+    col1, col2, col3, col4 = st.columns(4)
 
-industry_top10["분기매출액_억원"] = industry_top10["분기매출액"] / 100_000_000
-industry_top10["매출라벨"] = industry_top10["분기매출액_억원"].map(
-    lambda x: f"{x:,.1f}억"
-)
+    with col1:
+        st.metric(
+            label="💰 총 분기 매출액",
+            value=format_eok(total_sales),
+            help="선택한 필터 조건 기준 분기매출액 합계를 억원 단위로 표시합니다.",
+        )
 
-bar = (
-    alt.Chart(industry_top10)
-    .mark_bar(cornerRadius=8)
-    .encode(
-        x=alt.X(
-            "분기매출액_억원:Q",
-            title="분기매출액(억원)",
-            axis=alt.Axis(format=",.1f"),
-        ),
-        y=alt.Y(
-            "업종:N",
-            sort="-x",
-            title="업종",
-        ),
-        tooltip=[
-            alt.Tooltip("업종:N", title="업종"),
-            alt.Tooltip("분기매출액_억원:Q", title="분기매출액(억원)", format=",.1f"),
-        ],
+    with col2:
+        st.metric(
+            label="🧾 총 분기 거래건수",
+            value=format_man_geon(total_txn),
+            help="선택한 필터 조건 기준 분기거래건수 합계를 만 건 단위로 표시합니다.",
+        )
+
+    with col3:
+        st.metric(
+            label="🏙️ 분석 상권 수",
+            value=format_int(market_count),
+            help="선택한 필터 조건 기준 상권이름의 고유 개수입니다.",
+        )
+
+    with col4:
+        st.metric(
+            label="🛍️ 업종 종류",
+            value=format_int(industry_count),
+            help="선택한 필터 조건 기준 업종의 고유 개수입니다.",
+        )
+
+    st.markdown("---")
+    st.markdown('<div class="section-title">🏆 분기 매출 TOP 10 업종</div>', unsafe_allow_html=True)
+
+    industry_top10 = (
+        filtered_data.groupby("업종", as_index=False)["분기매출액"]
+        .sum()
+        .sort_values("분기매출액", ascending=False)
+        .head(10)
+        .copy()
     )
-)
 
-text = (
-    alt.Chart(industry_top10)
-    .mark_text(
-        align="left",
-        baseline="middle",
-        dx=7,
-        fontSize=12,
-        fontWeight="bold",
+    industry_top10["분기매출액_억원"] = industry_top10["분기매출액"] / 100_000_000
+    industry_top10["매출라벨"] = industry_top10["분기매출액_억원"].map(
+        lambda x: f"{x:,.1f}억"
     )
-    .encode(
-        x=alt.X("분기매출액_억원:Q"),
-        y=alt.Y("업종:N", sort="-x"),
-        text=alt.Text("매출라벨:N"),
-    )
-)
 
-chart = (
-    (bar + text)
-    .properties(height=430)
-    .configure_axis(
-        labelFontSize=12,
-        titleFontSize=13,
-        grid=True,
+    bar = (
+        alt.Chart(industry_top10)
+        .mark_bar(cornerRadius=8)
+        .encode(
+            x=alt.X(
+                "분기매출액_억원:Q",
+                title="분기매출액(억원)",
+                axis=alt.Axis(format=",.1f"),
+            ),
+            y=alt.Y(
+                "업종:N",
+                sort="-x",
+                title="업종",
+            ),
+            tooltip=[
+                alt.Tooltip("업종:N", title="업종"),
+                alt.Tooltip("분기매출액_억원:Q", title="분기매출액(억원)", format=",.1f"),
+            ],
+        )
     )
-    .configure_view(strokeOpacity=0)
-)
 
-st.altair_chart(chart, use_container_width=True)
+    text = (
+        alt.Chart(industry_top10)
+        .mark_text(
+            align="left",
+            baseline="middle",
+            dx=7,
+            fontSize=12,
+            fontWeight="bold",
+        )
+        .encode(
+            x=alt.X("분기매출액_억원:Q"),
+            y=alt.Y("업종:N", sort="-x"),
+            text=alt.Text("매출라벨:N"),
+        )
+    )
+
+    sales_chart = (
+        (bar + text)
+        .properties(height=430)
+        .configure_axis(
+            labelFontSize=12,
+            titleFontSize=13,
+            grid=True,
+        )
+        .configure_view(strokeOpacity=0)
+    )
+
+    st.altair_chart(sales_chart, use_container_width=True)
+
+    with st.expander("🔍 업종별 분기매출 TOP 10 데이터 보기"):
+        display_df = industry_top10[["업종", "분기매출액", "분기매출액_억원"]].copy()
+        display_df["분기매출액"] = display_df["분기매출액"].map(lambda x: f"{x:,.0f}")
+        display_df["분기매출액_억원"] = display_df["분기매출액_억원"].map(lambda x: f"{x:,.1f}")
+        display_df.columns = ["업종", "분기매출액(원)", "분기매출액(억원)"]
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 # -------------------------------------------------
-# 참고용 표 (filtered_data 기준)
+# 탭 2: 고객 분석
 # -------------------------------------------------
-with st.expander("🔍 업종별 분기매출 TOP 10 데이터 보기"):
-    display_df = industry_top10[["업종", "분기매출액", "분기매출액_억원"]].copy()
-    display_df["분기매출액"] = display_df["분기매출액"].map(lambda x: f"{x:,.0f}")
-    display_df["분기매출액_억원"] = display_df["분기매출액_억원"].map(lambda x: f"{x:,.1f}")
-    display_df.columns = ["업종", "분기매출액(원)", "분기매출액(억원)"]
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+with tab2:
+    st.markdown('<div class="section-title">👫 성별 매출 비중</div>', unsafe_allow_html=True)
+
+    donut_col, summary_col = st.columns([2, 1])
+
+    with donut_col:
+        donut = (
+            alt.Chart(gender_df)
+            .mark_arc(innerRadius=70)
+            .encode(
+                theta=alt.Theta("매출액:Q"),
+                color=alt.Color("성별:N", title="성별"),
+                tooltip=[
+                    alt.Tooltip("성별:N", title="성별"),
+                    alt.Tooltip("매출액:Q", title="매출액", format=",.0f"),
+                    alt.Tooltip("비율:N", title="비율"),
+                ],
+            )
+            .properties(height=360)
+        )
+
+        donut_text = (
+            alt.Chart(pd.DataFrame({"text": ["성별\n매출 비중"]}))
+            .mark_text(
+                fontSize=18,
+                fontWeight="bold",
+                align="center",
+                baseline="middle",
+            )
+            .encode(text="text:N")
+        )
+
+        st.altair_chart(donut + donut_text, use_container_width=True)
+
+    with summary_col:
+        st.markdown("#### 📌 요약")
+        for _, row in gender_df.iterrows():
+            st.metric(
+                label=f"{'🧑' if row['성별'] == '남성' else '👩'} {row['성별']}",
+                value=row["비율라벨"],
+                help=f"매출액 합계: {row['매출액라벨']}",
+            )
+
+    st.markdown("---")
+    st.markdown('<div class="section-title">🎯 연령대별 매출액</div>', unsafe_allow_html=True)
+
+    age_bar = (
+        alt.Chart(age_df)
+        .mark_bar(cornerRadiusTopLeft=8, cornerRadiusTopRight=8)
+        .encode(
+            x=alt.X("연령대:N", sort=["10대", "20대", "30대", "40대", "50대", "60대 이상"], title="연령대"),
+            y=alt.Y("매출액_억원:Q", title="매출액(억원)", axis=alt.Axis(format=",.1f")),
+            tooltip=[
+                alt.Tooltip("연령대:N", title="연령대"),
+                alt.Tooltip("매출액_억원:Q", title="매출액(억원)", format=",.1f"),
+            ],
+        )
+    )
+
+    age_text = (
+        alt.Chart(age_df)
+        .mark_text(
+            dy=-8,
+            fontSize=12,
+            fontWeight="bold",
+        )
+        .encode(
+            x=alt.X("연령대:N", sort=["10대", "20대", "30대", "40대", "50대", "60대 이상"]),
+            y=alt.Y("매출액_억원:Q"),
+            text=alt.Text("매출라벨:N"),
+        )
+    )
+
+    age_chart = (
+        (age_bar + age_text)
+        .properties(height=420)
+        .configure_axis(
+            labelFontSize=12,
+            titleFontSize=13,
+            grid=True,
+        )
+        .configure_view(strokeOpacity=0)
+    )
+
+    st.altair_chart(age_chart, use_container_width=True)
+
+    with st.expander("🔍 고객 분석 데이터 보기"):
+        gender_view = gender_df.copy()
+        gender_view["매출액"] = gender_view["매출액"].map(lambda x: f"{x:,.0f}")
+        gender_view["비율"] = gender_view["비율라벨"]
+        gender_view = gender_view[["성별", "매출액", "비율"]]
+        gender_view.columns = ["성별", "매출액(원)", "비율"]
+
+        age_view = age_df.copy()
+        age_view["매출액"] = age_view["매출액"].map(lambda x: f"{x:,.0f}")
+        age_view["매출액_억원"] = age_view["매출액_억원"].map(lambda x: f"{x:,.1f}")
+        age_view = age_view[["연령대", "매출액", "매출액_억원"]]
+        age_view.columns = ["연령대", "매출액(원)", "매출액(억원)"]
+
+        st.markdown("##### 성별 매출 요약")
+        st.dataframe(gender_view, use_container_width=True, hide_index=True)
+
+        st.markdown("##### 연령대별 매출 요약")
+        st.dataframe(age_view, use_container_width=True, hide_index=True)
 
 
 # -------------------------------------------------
