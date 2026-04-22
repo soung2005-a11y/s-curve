@@ -37,6 +37,18 @@ st.markdown(
         margin-top: 0.4rem;
         margin-bottom: 0.8rem;
     }
+    .footer-text {
+        text-align: center;
+        color: #6b7280;
+        font-size: 0.9rem;
+        padding-top: 1.2rem;
+        padding-bottom: 0.5rem;
+    }
+    .sidebar-source {
+        font-size: 0.78rem;
+        color: #6b7280;
+        line-height: 1.4;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -126,6 +138,11 @@ def format_man_geon(value: float) -> str:
 
 def format_int(value: int) -> str:
     return f"{int(value):,}"
+
+
+@st.cache_data
+def convert_df_to_cp949_csv(dataframe: pd.DataFrame) -> bytes:
+    return dataframe.to_csv(index=False).encode("cp949", errors="replace")
 
 
 # -------------------------------------------------
@@ -232,9 +249,25 @@ if selected_industries:
 else:
     filtered_data = filtered_data.iloc[0:0]
 
-# 사이드바 맨 아래 현재 건수 표시
+# 다운로드용 CSV 생성
+filtered_csv = convert_df_to_cp949_csv(filtered_data)
+
 st.sidebar.markdown("---")
+st.sidebar.download_button(
+    label="데이터 다운로드(CSV)",
+    data=filtered_csv,
+    file_name="filtered_data.csv",
+    mime="text/csv",
+)
+
+# 사이드바 맨 아래 현재 건수 표시
 st.sidebar.markdown(f"**필터링된 데이터: {format_int(len(filtered_data))}건**")
+
+# 데이터 출처
+st.sidebar.markdown(
+    '<div class="sidebar-source">* 데이터출처: 서울 열린데이터광장(http://data.seoul.go.kr/)</div>',
+    unsafe_allow_html=True,
+)
 
 if filtered_data.empty:
     st.warning("선택한 조건에 해당하는 데이터가 없습니다. 사이드바 필터를 조정해 주세요.")
@@ -455,7 +488,7 @@ with tab2:
                 tooltip=[
                     alt.Tooltip("성별:N", title="성별"),
                     alt.Tooltip("매출액:Q", title="매출액", format=",.0f"),
-                    alt.Tooltip("비율:N", title="비율"),
+                    alt.Tooltip("비율라벨:N", title="비율"),
                 ],
             )
             .properties(height=360)
@@ -490,8 +523,16 @@ with tab2:
         alt.Chart(age_df)
         .mark_bar(cornerRadiusTopLeft=8, cornerRadiusTopRight=8)
         .encode(
-            x=alt.X("연령대:N", sort=["10대", "20대", "30대", "40대", "50대", "60대 이상"], title="연령대"),
-            y=alt.Y("매출액_억원:Q", title="매출액(억원)", axis=alt.Axis(format=",.1f")),
+            x=alt.X(
+                "연령대:N",
+                sort=["10대", "20대", "30대", "40대", "50대", "60대 이상"],
+                title="연령대",
+            ),
+            y=alt.Y(
+                "매출액_억원:Q",
+                title="매출액(억원)",
+                axis=alt.Axis(format=",.1f"),
+            ),
             tooltip=[
                 alt.Tooltip("연령대:N", title="연령대"),
                 alt.Tooltip("매출액_억원:Q", title="매출액(억원)", format=",.1f"),
@@ -507,7 +548,10 @@ with tab2:
             fontWeight="bold",
         )
         .encode(
-            x=alt.X("연령대:N", sort=["10대", "20대", "30대", "40대", "50대", "60대 이상"]),
+            x=alt.X(
+                "연령대:N",
+                sort=["10대", "20대", "30대", "40대", "50대", "60대 이상"],
+            ),
             y=alt.Y("매출액_억원:Q"),
             text=alt.Text("매출라벨:N"),
         )
@@ -547,7 +591,10 @@ with tab2:
 
 
 # -------------------------------------------------
-# 하단 안내
+# 페이지 하단 푸터
 # -------------------------------------------------
 st.markdown("---")
-st.caption("📎 모든 KPI와 차트는 filtered_data 기준으로 계산됩니다.")
+st.markdown(
+    '<div class="footer-text">Made by 이성호, with AI support</div>',
+    unsafe_allow_html=True,
+)
