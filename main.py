@@ -18,33 +18,36 @@ st.markdown(
     """
     <style>
     .block-container {
-        padding-top: 1.5rem;
+        padding-top: 1.4rem;
         padding-bottom: 2rem;
     }
     .dashboard-title {
         font-size: 2rem;
         font-weight: 800;
-        margin-bottom: 0.2rem;
+        margin-bottom: 0.15rem;
     }
     .dashboard-subtitle {
         color: #6b7280;
         font-size: 0.98rem;
-        margin-bottom: 1.2rem;
+        margin-bottom: 1.1rem;
     }
     .section-title {
         font-size: 1.15rem;
         font-weight: 700;
-        margin-top: 0.5rem;
-        margin-bottom: 0.6rem;
+        margin-top: 0.4rem;
+        margin-bottom: 0.8rem;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="dashboard-title">📊 서울시 상권 분석 대시보드</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="dashboard-subtitle">분기별 상권 데이터를 기준으로 핵심 지표와 업종별 매출 상위를 한눈에 확인합니다.</div>',
+    '<div class="dashboard-title">📊 서울시 상권 분석 대시보드</div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<div class="dashboard-subtitle">분기·상권유형·업종 필터를 기준으로 핵심 지표와 업종별 매출 상위를 확인합니다.</div>',
     unsafe_allow_html=True,
 )
 
@@ -100,13 +103,11 @@ def load_data() -> pd.DataFrame:
 # 포맷 함수
 # -------------------------------------------------
 def format_eok(value: float) -> str:
-    """원 단위를 억원 단위 문자열로 변환"""
     eok = value / 100_000_000
     return f"{eok:,.1f}억"
 
 
 def format_man_geon(value: float) -> str:
-    """건수를 만 건 단위 문자열로 변환"""
     man = value / 10_000
     return f"{man:,.1f}만 건"
 
@@ -148,6 +149,7 @@ top5_industries = (
     .head(5)["업종"]
     .tolist()
 )
+
 industry_options = sorted(df["업종"].dropna().astype(str).unique().tolist())
 
 
@@ -164,7 +166,7 @@ selected_quarters = st.sidebar.multiselect(
 )
 
 selected_market_types_default = [
-    value for value in ["골목상권", "전통시장"] if value in market_type_options
+    v for v in ["골목상권", "전통시장"] if v in market_type_options
 ]
 selected_market_types = st.sidebar.multiselect(
     "필터 2: 상권유형",
@@ -172,7 +174,9 @@ selected_market_types = st.sidebar.multiselect(
     default=selected_market_types_default,
 )
 
-selected_industries_default = [value for value in top5_industries if value in industry_options]
+selected_industries_default = [
+    v for v in top5_industries if v in industry_options
+]
 selected_industries = st.sidebar.multiselect(
     "필터 3: 업종",
     options=industry_options,
@@ -186,42 +190,52 @@ st.sidebar.write(f"**전체 행 수**: {format_int(len(df))}개")
 
 
 # -------------------------------------------------
-# 필터 적용
+# 필터 적용 → filtered_data
 # -------------------------------------------------
-filtered_df = df.copy()
+filtered_data = df.copy()
 
-# 분기 필터
+# 1) 분기 필터
 if selected_quarters:
     if "전체" not in selected_quarters:
         selected_quarter_ints = [int(q) for q in selected_quarters]
-        filtered_df = filtered_df[filtered_df["기준_년분기_코드"].isin(selected_quarter_ints)]
+        filtered_data = filtered_data[
+            filtered_data["기준_년분기_코드"].isin(selected_quarter_ints)
+        ]
 else:
-    filtered_df = filtered_df.iloc[0:0]
+    filtered_data = filtered_data.iloc[0:0]
 
-# 상권유형 필터
+# 2) 상권유형 필터
 if selected_market_types:
-    filtered_df = filtered_df[filtered_df["상권유형"].isin(selected_market_types)]
+    filtered_data = filtered_data[
+        filtered_data["상권유형"].isin(selected_market_types)
+    ]
 else:
-    filtered_df = filtered_df.iloc[0:0]
+    filtered_data = filtered_data.iloc[0:0]
 
-# 업종 필터
+# 3) 업종 필터
 if selected_industries:
-    filtered_df = filtered_df[filtered_df["업종"].isin(selected_industries)]
+    filtered_data = filtered_data[
+        filtered_data["업종"].isin(selected_industries)
+    ]
 else:
-    filtered_df = filtered_df.iloc[0:0]
+    filtered_data = filtered_data.iloc[0:0]
 
-if filtered_df.empty:
+# 사이드바 맨 아래 현재 건수 표시
+st.sidebar.markdown("---")
+st.sidebar.markdown(f"**필터링된 데이터: {format_int(len(filtered_data))}건**")
+
+if filtered_data.empty:
     st.warning("선택한 조건에 해당하는 데이터가 없습니다. 사이드바 필터를 조정해 주세요.")
     st.stop()
 
 
 # -------------------------------------------------
-# KPI 계산
+# KPI 계산 (filtered_data 기준)
 # -------------------------------------------------
-total_sales = filtered_df["분기매출액"].sum()
-total_txn = filtered_df["분기거래건수"].sum()
-market_count = filtered_df["상권이름"].nunique()
-industry_count = filtered_df["업종"].nunique()
+total_sales = filtered_data["분기매출액"].sum()
+total_txn = filtered_data["분기거래건수"].sum()
+market_count = filtered_data["상권이름"].nunique()
+industry_count = filtered_data["업종"].nunique()
 
 
 # -------------------------------------------------
@@ -234,22 +248,29 @@ elif "전체" in selected_quarters:
 else:
     quarter_filter_text = ", ".join([f"{int(q):,}" for q in selected_quarters])
 
-market_type_filter_text = ", ".join(selected_market_types) if selected_market_types else "선택 없음"
-industry_filter_text = f"{len(selected_industries):,}개 업종 선택" if selected_industries else "선택 없음"
+market_type_filter_text = (
+    ", ".join(selected_market_types) if selected_market_types else "선택 없음"
+)
+industry_filter_text = (
+    ", ".join(selected_industries[:3]) + (f" 외 {len(selected_industries)-3}개" if len(selected_industries) > 3 else "")
+    if selected_industries else "선택 없음"
+)
 
 left_info, right_info = st.columns([3, 1])
+
 with left_info:
     st.info(
         f"📌 분기: **{quarter_filter_text}**  |  "
         f"상권유형: **{market_type_filter_text}**  |  "
         f"업종: **{industry_filter_text}**"
     )
+
 with right_info:
-    st.success(f"✅ 분석 대상: **{format_int(len(filtered_df))}건**")
+    st.success(f"✅ 분석 대상: **{format_int(len(filtered_data))}건**")
 
 
 # -------------------------------------------------
-# KPI 4칸
+# KPI 4칸 (filtered_data 기준)
 # -------------------------------------------------
 st.markdown('<div class="section-title">✨ 핵심 메트릭</div>', unsafe_allow_html=True)
 
@@ -287,12 +308,12 @@ st.markdown("---")
 
 
 # -------------------------------------------------
-# 업종별 분기매출 TOP 10
+# 차트 계산 (filtered_data 기준)
 # -------------------------------------------------
 st.markdown('<div class="section-title">🏆 분기 매출 TOP 10 업종</div>', unsafe_allow_html=True)
 
 industry_top10 = (
-    filtered_df.groupby("업종", as_index=False)["분기매출액"]
+    filtered_data.groupby("업종", as_index=False)["분기매출액"]
     .sum()
     .sort_values("분기매출액", ascending=False)
     .head(10)
@@ -300,7 +321,9 @@ industry_top10 = (
 )
 
 industry_top10["분기매출액_억원"] = industry_top10["분기매출액"] / 100_000_000
-industry_top10["매출라벨"] = industry_top10["분기매출액_억원"].map(lambda x: f"{x:,.1f}억")
+industry_top10["매출라벨"] = industry_top10["분기매출액_억원"].map(
+    lambda x: f"{x:,.1f}억"
+)
 
 bar = (
     alt.Chart(industry_top10)
@@ -354,7 +377,7 @@ st.altair_chart(chart, use_container_width=True)
 
 
 # -------------------------------------------------
-# 참고용 표
+# 참고용 표 (filtered_data 기준)
 # -------------------------------------------------
 with st.expander("🔍 업종별 분기매출 TOP 10 데이터 보기"):
     display_df = industry_top10[["업종", "분기매출액", "분기매출액_억원"]].copy()
@@ -368,4 +391,4 @@ with st.expander("🔍 업종별 분기매출 TOP 10 데이터 보기"):
 # 하단 안내
 # -------------------------------------------------
 st.markdown("---")
-st.caption("📎 모든 지표와 차트는 사이드바의 데이터 필터 조건에 따라 자동 반영됩니다.")
+st.caption("📎 모든 KPI와 차트는 filtered_data 기준으로 계산됩니다.")
