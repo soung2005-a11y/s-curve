@@ -127,27 +127,56 @@ except Exception as e:
 
 
 # -------------------------------------------------
+# 기본 필터 옵션 준비
+# -------------------------------------------------
+all_quarters = (
+    df["기준_년분기_코드"]
+    .dropna()
+    .astype(int)
+    .sort_values()
+    .unique()
+    .tolist()
+)
+quarter_options = ["전체"] + [str(q) for q in all_quarters]
+
+market_type_options = sorted(df["상권유형"].dropna().astype(str).unique().tolist())
+
+top5_industries = (
+    df.groupby("업종", as_index=False)["분기매출액"]
+    .sum()
+    .sort_values("분기매출액", ascending=False)
+    .head(5)["업종"]
+    .tolist()
+)
+industry_options = sorted(df["업종"].dropna().astype(str).unique().tolist())
+
+
+# -------------------------------------------------
 # 사이드바 필터
 # -------------------------------------------------
-st.sidebar.header("🧭 필터")
+st.sidebar.header("데이터 필터")
 
-quarter_options = ["전체"]
-if "기준_년분기_코드" in df.columns:
-    quarter_values = (
-        df["기준_년분기_코드"]
-        .dropna()
-        .astype(int)
-        .sort_values()
-        .unique()
-        .tolist()
-    )
-    quarter_options += [str(q) for q in quarter_values]
-
-selected_quarter = st.sidebar.selectbox(
-    "분기 선택",
+selected_quarters = st.sidebar.multiselect(
+    "필터 1: 분기 선택",
     options=quarter_options,
-    index=0,
-    help="기본값은 전체입니다. 특정 분기를 선택하면 모든 지표와 차트가 해당 분기 기준으로 변경됩니다.",
+    default=["전체"],
+    help="전체가 선택되면 모든 분기를 포함합니다. 특정 분기를 여러 개 선택할 수도 있습니다.",
+)
+
+selected_market_types_default = [
+    value for value in ["골목상권", "전통시장"] if value in market_type_options
+]
+selected_market_types = st.sidebar.multiselect(
+    "필터 2: 상권유형",
+    options=market_type_options,
+    default=selected_market_types_default,
+)
+
+selected_industries_default = [value for value in top5_industries if value in industry_options]
+selected_industries = st.sidebar.multiselect(
+    "필터 3: 업종",
+    options=industry_options,
+    default=selected_industries_default,
 )
 
 st.sidebar.markdown("---")
@@ -161,11 +190,28 @@ st.sidebar.write(f"**전체 행 수**: {format_int(len(df))}개")
 # -------------------------------------------------
 filtered_df = df.copy()
 
-if selected_quarter != "전체":
-    filtered_df = filtered_df[filtered_df["기준_년분기_코드"] == int(selected_quarter)]
+# 분기 필터
+if selected_quarters:
+    if "전체" not in selected_quarters:
+        selected_quarter_ints = [int(q) for q in selected_quarters]
+        filtered_df = filtered_df[filtered_df["기준_년분기_코드"].isin(selected_quarter_ints)]
+else:
+    filtered_df = filtered_df.iloc[0:0]
+
+# 상권유형 필터
+if selected_market_types:
+    filtered_df = filtered_df[filtered_df["상권유형"].isin(selected_market_types)]
+else:
+    filtered_df = filtered_df.iloc[0:0]
+
+# 업종 필터
+if selected_industries:
+    filtered_df = filtered_df[filtered_df["업종"].isin(selected_industries)]
+else:
+    filtered_df = filtered_df.iloc[0:0]
 
 if filtered_df.empty:
-    st.warning("선택한 조건에 해당하는 데이터가 없습니다.")
+    st.warning("선택한 조건에 해당하는 데이터가 없습니다. 사이드바 필터를 조정해 주세요.")
     st.stop()
 
 
@@ -181,11 +227,23 @@ industry_count = filtered_df["업종"].nunique()
 # -------------------------------------------------
 # 상단 상태 표시
 # -------------------------------------------------
-current_filter_text = "전체" if selected_quarter == "전체" else f"{int(selected_quarter):,}"
+if not selected_quarters:
+    quarter_filter_text = "선택 없음"
+elif "전체" in selected_quarters:
+    quarter_filter_text = "전체"
+else:
+    quarter_filter_text = ", ".join([f"{int(q):,}" for q in selected_quarters])
+
+market_type_filter_text = ", ".join(selected_market_types) if selected_market_types else "선택 없음"
+industry_filter_text = f"{len(selected_industries):,}개 업종 선택" if selected_industries else "선택 없음"
 
 left_info, right_info = st.columns([3, 1])
 with left_info:
-    st.info(f"📌 현재 기준: **{current_filter_text}**")
+    st.info(
+        f"📌 분기: **{quarter_filter_text}**  |  "
+        f"상권유형: **{market_type_filter_text}**  |  "
+        f"업종: **{industry_filter_text}**"
+    )
 with right_info:
     st.success(f"✅ 분석 대상: **{format_int(len(filtered_df))}건**")
 
@@ -201,30 +259,29 @@ with col1:
     st.metric(
         label="💰 총 분기 매출액",
         value=format_eok(total_sales),
-        help="선택한 분기를 기준으로 분기매출액 합계를 억원 단위로 표시합니다.",
+        help="선택한 필터 조건 기준 분기매출액 합계를 억원 단위로 표시합니다.",
     )
 
 with col2:
     st.metric(
         label="🧾 총 분기 거래건수",
         value=format_man_geon(total_txn),
-        help="선택한 분기를 기준으로 분기거래건수 합계를 만 건 단위로 표시합니다.",
+        help="선택한 필터 조건 기준 분기거래건수 합계를 만 건 단위로 표시합니다.",
     )
 
 with col3:
     st.metric(
         label="🏙️ 분석 상권 수",
         value=format_int(market_count),
-        help="선택한 분기 기준 상권이름의 고유 개수입니다.",
+        help="선택한 필터 조건 기준 상권이름의 고유 개수입니다.",
     )
 
 with col4:
     st.metric(
         label="🛍️ 업종 종류",
         value=format_int(industry_count),
-        help="선택한 분기 기준 업종의 고유 개수입니다.",
+        help="선택한 필터 조건 기준 업종의 고유 개수입니다.",
     )
-
 
 st.markdown("---")
 
@@ -311,4 +368,4 @@ with st.expander("🔍 업종별 분기매출 TOP 10 데이터 보기"):
 # 하단 안내
 # -------------------------------------------------
 st.markdown("---")
-st.caption("📎 모든 지표와 차트는 선택한 분기 기준으로 자동 반영됩니다. 기본값은 전체입니다.")
+st.caption("📎 모든 지표와 차트는 사이드바의 데이터 필터 조건에 따라 자동 반영됩니다.")
